@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   Search,
   Upload,
@@ -14,9 +14,256 @@ import {
   X,
   ChevronDown,
   Image as ImageIcon,
+  MapPin,
+  Loader2,
+  FileImage,
+  AlertCircle,
+  Eye,
 } from 'lucide-react';
 import { Globe3D, GLOBE_LOCATIONS, type GlobeMarker } from './Globe3D';
 import { Map2D } from './Map2D';
+
+// ─── Nominatim Geocoding ──────────────────────────────────────────────────────
+
+interface NominatimResult {
+  place_id: number;
+  display_name: string;
+  lat: string;
+  lon: string;
+  type: string;
+  class: string;
+  importance: number;
+  address?: {
+    country?: string;
+    state?: string;
+    city?: string;
+    town?: string;
+    village?: string;
+  };
+}
+
+async function geocodeSearch(query: string): Promise<NominatimResult[]> {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&addressdetails=1`;
+  const res = await fetch(url, {
+    headers: { 'Accept-Language': 'en', 'User-Agent': 'Terra3D-SIH/1.0' },
+  });
+  if (!res.ok) throw new Error('Geocoding request failed');
+  return res.json();
+}
+
+function formatPlaceName(result: NominatimResult): { primary: string; secondary: string } {
+  const parts = result.display_name.split(', ');
+  const primary = parts.slice(0, 2).join(', ');
+  const secondary = parts.slice(2, 4).join(', ');
+  return { primary, secondary };
+}
+
+// ─── TIF Preview Modal ────────────────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+interface TifPreviewModalProps {
+  file: File;
+  darkMode: boolean;
+  onConfirm: (file: File, mode: 'geo' | 'non-geo') => void;
+  onCancel: () => void;
+}
+
+const TifPreviewModal: React.FC<TifPreviewModalProps> = ({ file, darkMode, onConfirm, onCancel }) => {
+  const isGeo =
+    file.name.toLowerCase().endsWith('.tif') ||
+    file.name.toLowerCase().endsWith('.tiff') ||
+    file.name.toLowerCase().endsWith('.geotiff');
+  const isPng =
+    file.name.toLowerCase().endsWith('.png') ||
+    file.name.toLowerCase().endsWith('.jpg') ||
+    file.name.toLowerCase().endsWith('.jpeg') ||
+    file.name.toLowerCase().endsWith('.webp');
+
+  const [pngPreviewUrl, setPngPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isPng) {
+      const url = URL.createObjectURL(file);
+      setPngPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [file, isPng]);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onCancel} />
+      <div
+        className={`relative z-10 w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${
+          darkMode
+            ? 'bg-neutral-950/95 border-white/10 text-neutral-100'
+            : 'bg-white/97 border-neutral-200 text-neutral-900'
+        }`}
+      >
+        {/* Header */}
+        <div
+          className={`flex items-center justify-between px-5 py-4 border-b ${
+            darkMode ? 'border-white/8' : 'border-neutral-100'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                darkMode ? 'bg-indigo-500/15 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
+              }`}
+            >
+              <FileImage className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-sm font-bold leading-tight">File Ready to Upload</div>
+              <div className="text-[11px] text-neutral-400 mt-0.5">
+                {isGeo ? 'GeoTIFF / Terrain Image' : 'Optical Image'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className={`p-1.5 rounded-lg transition-colors ${
+              darkMode ? 'hover:bg-white/10 text-neutral-400' : 'hover:bg-neutral-100 text-neutral-500'
+            }`}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Preview */}
+        <div className="p-5 space-y-4">
+          <div
+            className={`w-full h-44 rounded-2xl overflow-hidden flex items-center justify-center border relative ${
+              darkMode ? 'bg-neutral-900 border-white/8' : 'bg-neutral-50 border-neutral-200'
+            }`}
+          >
+            {isPng && pngPreviewUrl ? (
+              <img src={pngPreviewUrl} alt="Preview" className="w-full h-full object-cover" />
+            ) : isGeo ? (
+              <>
+                <svg
+                  className="absolute inset-0 w-full h-full opacity-20"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 400 176"
+                  preserveAspectRatio="xMidYMid slice"
+                >
+                  <defs>
+                    <linearGradient id="topo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#3b82f6" />
+                      <stop offset="50%" stopColor="#6366f1" />
+                      <stop offset="100%" stopColor="#8b5cf6" />
+                    </linearGradient>
+                  </defs>
+                  {[20, 40, 60, 80, 100, 120, 140].map((y, i) => (
+                    <path
+                      key={i}
+                      d={`M0,${y} Q50,${y - 15 + (i % 3) * 8} 100,${y + 10 - (i % 2) * 12} T200,${y - 8 + (i % 4) * 5} T300,${y + 12 - (i % 3) * 9} T400,${y}`}
+                      fill="none"
+                      stroke="url(#topo-grad)"
+                      strokeWidth="1.5"
+                    />
+                  ))}
+                </svg>
+                <div className="relative z-10 flex flex-col items-center gap-2 text-center">
+                  <div
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                      darkMode ? 'bg-indigo-500/20' : 'bg-indigo-50'
+                    }`}
+                  >
+                    <Mountain className="w-6 h-6 text-indigo-400" />
+                  </div>
+                  <div className="text-xs font-semibold text-neutral-300">GeoTIFF Terrain Data</div>
+                  <div className="text-[10px] text-neutral-500">3D DEM preview via Google Colab</div>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <Eye className="w-8 h-8 text-neutral-400" />
+                <div className="text-xs text-neutral-400">No preview available</div>
+              </div>
+            )}
+          </div>
+
+          {/* File metadata */}
+          <div
+            className={`rounded-xl border p-3.5 space-y-2 text-xs ${
+              darkMode ? 'bg-neutral-900/60 border-white/8' : 'bg-neutral-50 border-neutral-200'
+            }`}
+          >
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Filename</span>
+              <span className="font-mono font-medium truncate max-w-[55%] text-right">{file.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-400">File Size</span>
+              <span className="font-mono font-medium">{formatBytes(file.size)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Type</span>
+              <span className="font-mono font-medium">
+                {isGeo ? 'GeoTIFF / DEM Elevation' : 'Optical Raster Image'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Processing</span>
+              <span className={`font-medium ${darkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                Google Colab 3D Renderer
+              </span>
+            </div>
+          </div>
+
+          {isGeo && (
+            <div
+              className={`flex items-start gap-2.5 rounded-xl p-3 text-xs border ${
+                darkMode
+                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-300'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                GeoTIFF files are processed as elevation data. Ensure your Google Colab server is running.
+              </span>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex gap-2.5 pt-1">
+            <button
+              type="button"
+              onClick={onCancel}
+              className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition-all active:scale-95 ${
+                darkMode
+                  ? 'bg-white/5 border-white/10 text-neutral-300 hover:bg-white/10'
+                  : 'bg-neutral-100 border-neutral-200 text-neutral-700 hover:bg-neutral-200'
+              }`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirm(file, isGeo ? 'geo' : 'non-geo')}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                darkMode
+                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/40'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200'
+              }`}
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload &amp; Process</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface HomeScreenProps {
   darkMode: boolean;
@@ -51,6 +298,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [isUploadMenuOpen, setIsUploadMenuOpen] = useState(false);
 
+  // Geocoding state
+  const [geocodeResults, setGeocodeResults] = useState<NominatimResult[]>([]);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState<string | null>(null);
+  const [navigateToCoords, setNavigateToCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const geocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // TIF preview state
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+
   const nonGeoFileInputRef = useRef<HTMLInputElement>(null);
   const geoFileInputRef = useRef<HTMLInputElement>(null);
   const uploadMenuRef = useRef<HTMLDivElement>(null);
@@ -70,17 +327,44 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, [isUploadMenuOpen]);
 
-  // Filter locations based on search query
-  const filteredLocations = useMemo(() => {
+  // Debounced geocoding search
+  useEffect(() => {
+    if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
+    const trimmed = searchQuery.trim();
+    if (!trimmed || trimmed.length < 2) {
+      setGeocodeResults([]);
+      setGeocodeError(null);
+      setIsGeocoding(false);
+      return;
+    }
+    setIsGeocoding(true);
+    setGeocodeError(null);
+    geocodeTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await geocodeSearch(trimmed);
+        setGeocodeResults(results);
+        setGeocodeError(null);
+      } catch {
+        setGeocodeError('Failed to fetch results. Check your connection.');
+        setGeocodeResults([]);
+      } finally {
+        setIsGeocoding(false);
+      }
+    }, 500);
+    return () => {
+      if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
+    };
+  }, [searchQuery]);
+
+  // Filtered local GLOBE_LOCATIONS
+  const filteredLocalLocations = useMemo(() => {
     if (!searchQuery.trim()) return GLOBE_LOCATIONS;
     const query = searchQuery.toLowerCase().trim();
     return GLOBE_LOCATIONS.filter(
       (loc) =>
         loc.name.toLowerCase().includes(query) ||
         loc.region.toLowerCase().includes(query) ||
-        loc.elev.toLowerCase().includes(query) ||
-        loc.lat.toString().includes(query) ||
-        loc.lon.toString().includes(query)
+        loc.elev.toLowerCase().includes(query)
     );
   }, [searchQuery]);
 
@@ -89,7 +373,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setCurrentCoords({ lat: loc.lat, lon: loc.lon });
     setSearchQuery(loc.name);
     setIsSearchFocused(false);
+    setGeocodeResults([]);
   };
+
+  const handleSelectGeocodeResult = useCallback((result: NominatimResult) => {
+    const lat = parseFloat(result.lat);
+    const lon = parseFloat(result.lon);
+    const { primary } = formatPlaceName(result);
+    setCurrentCoords({ lat, lon });
+    setNavigateToCoords({ lat, lon });
+    setSearchQuery(primary);
+    setIsSearchFocused(false);
+    setGeocodeResults([]);
+    setSelectedMarkerId(null);
+    if (viewMode === 'map2d') setMap2dZoom(12);
+  }, [viewMode]);
 
   const handleZoomInToMap = (coords: { lat: number; lon: number; zoom: number }) => {
     setCurrentCoords({ lat: coords.lat, lon: coords.lon });
@@ -97,35 +395,32 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setViewMode('map2d');
   };
 
+  // Show preview modal before processing
+  const handleFileWithPreview = useCallback((file: File) => {
+    setPendingFile(file);
+    setIsUploadMenuOpen(false);
+  }, []);
+
+  const handleConfirmUpload = useCallback((file: File, mode: 'geo' | 'non-geo') => {
+    setPendingFile(null);
+    if (onProcessImageFile) {
+      onProcessImageFile(file, mode);
+    } else {
+      const url = URL.createObjectURL(file);
+      onFileUpload(url, file.name);
+      onEnterViewer();
+    }
+  }, [onProcessImageFile, onFileUpload, onEnterViewer]);
+
   const handleNonGeoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploadMenuOpen(false);
-      if (onProcessImageFile) {
-        onProcessImageFile(file, 'non-geo');
-      } else {
-        const url = URL.createObjectURL(file);
-        onFileUpload(url, `[Non-Geo] ${file.name}`);
-        onEnterViewer();
-      }
-    }
-    // Reset file input value so re-uploading the same file works
+    if (file) handleFileWithPreview(file);
     if (e.target) e.target.value = '';
   };
 
   const handleGeoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploadMenuOpen(false);
-      if (onProcessImageFile) {
-        onProcessImageFile(file, 'geo');
-      } else {
-        const url = URL.createObjectURL(file);
-        onFileUpload(url, `[Geo] ${file.name}`);
-        onEnterViewer();
-      }
-    }
-    // Reset file input value so re-uploading the same file works
+    if (file) handleFileWithPreview(file);
     if (e.target) e.target.value = '';
   };
 
@@ -142,16 +437,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     e.preventDefault();
     setIsDraggingFile(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) {
-      if (onProcessImageFile) {
-        onProcessImageFile(file);
-      } else {
-        const url = URL.createObjectURL(file);
-        onFileUpload(url, file.name);
-        onEnterViewer();
-      }
-    }
+    if (file) handleFileWithPreview(file);
   };
+
+  const showGeocodeResults = isSearchFocused && searchQuery.trim().length >= 2;
+  const showLocalResults = isSearchFocused && searchQuery.trim().length < 2;
 
   return (
     <div
@@ -404,6 +694,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onSelectMarker={handleSelectLocation}
             onCoordinatesChange={(lat, lon) => setCurrentCoords({ lat, lon })}
             onZoomInToMap={handleZoomInToMap}
+            navigateToCoords={navigateToCoords}
           />
         ) : (
           <Map2D
@@ -445,96 +736,191 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </button>
 
         <div id="home-search-container" className="relative w-full">
-          {/* Search Dropdown / Autocomplete Results (Opens Upward Above Search Bar) */}
+          {/* Search Dropdown (Opens Upward) */}
           {isSearchFocused && (
             <div
               id="globe-search-dropdown"
               className={`absolute left-0 right-0 bottom-full mb-3 rounded-2xl border shadow-2xl backdrop-blur-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-150 ${
                 darkMode
-                  ? 'bg-black/80 border-white/10 divide-y divide-white/10 text-neutral-200'
-                  : 'bg-white/85 border-neutral-200 divide-y divide-neutral-100 text-neutral-800'
+                  ? 'bg-black/85 border-white/10 text-neutral-200'
+                  : 'bg-white/90 border-neutral-200 text-neutral-800'
               }`}
             >
-              <div className="p-2.5 max-h-72 overflow-y-auto space-y-1.5">
-                <div className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-neutral-400 flex items-center justify-between">
-                  <span>Geological Points of Interest ({filteredLocations.length})</span>
-                  <span>Click to Focus Globe</span>
-                </div>
-
-                {filteredLocations.length === 0 ? (
-                  <div className="px-3.5 py-4 text-center text-xs sm:text-sm text-neutral-400">
-                    No matching geological locations found for &ldquo;{searchQuery}&rdquo;. Try coordinates like &ldquo;36, 71&rdquo; or &ldquo;Hindu Kush&rdquo;.
-                  </div>
-                ) : (
-                  filteredLocations.map((loc) => (
+              <div className="max-h-80 overflow-y-auto">
+                {/* ── Nominatim geocode results (real places) ── */}
+                {showGeocodeResults && (
+                  <>
                     <div
-                      key={loc.id}
-                      onClick={() => handleSelectLocation(loc)}
-                      className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl cursor-pointer transition-colors text-left ${
-                        selectedMarkerId === loc.id
-                          ? darkMode
-                            ? 'bg-white/15 text-white'
-                            : 'bg-neutral-100 text-neutral-900'
-                          : darkMode
-                          ? 'hover:bg-white/10 text-neutral-200'
-                          : 'hover:bg-neutral-50 text-neutral-800'
+                      className={`sticky top-0 px-4 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between ${
+                        darkMode
+                          ? 'bg-black/70 text-neutral-400 border-b border-white/8'
+                          : 'bg-white/80 text-neutral-500 border-b border-neutral-100'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                            darkMode ? 'bg-white/10 text-neutral-300' : 'bg-neutral-100 text-neutral-700'
-                          }`}
-                        >
-                          {loc.hasActiveModel ? (
-                            <Sparkles className="w-4 h-4 text-neutral-300" />
-                          ) : (
-                            <Mountain className="w-4 h-4 text-neutral-400" />
-                          )}
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold flex items-center gap-1.5">
-                            <span>{loc.name}</span>
-                            {loc.hasActiveModel && (
-                              <span
-                                className={`px-1.5 py-0.5 text-[9px] font-bold rounded border ${
-                                  darkMode
-                                    ? 'bg-white/10 text-neutral-300 border-white/15'
-                                    : 'bg-neutral-100 text-neutral-700 border-neutral-300'
+                      <span>Search Results</span>
+                      {isGeocoding && <Loader2 className="w-3 h-3 animate-spin text-neutral-400" />}
+                    </div>
+
+                    {isGeocoding && geocodeResults.length === 0 ? (
+                      <div className="flex items-center justify-center gap-2 py-6 text-xs text-neutral-400">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Searching places...</span>
+                      </div>
+                    ) : geocodeError ? (
+                      <div className="px-4 py-4 text-xs text-center text-red-400 flex items-center justify-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>{geocodeError}</span>
+                      </div>
+                    ) : geocodeResults.length === 0 ? (
+                      <div className="px-4 py-5 text-xs text-center text-neutral-400">
+                        No places found for &ldquo;{searchQuery}&rdquo;
+                      </div>
+                    ) : (
+                      <div className="p-2 space-y-0.5">
+                        {geocodeResults.map((result) => {
+                          const { primary, secondary } = formatPlaceName(result);
+                          const lat = parseFloat(result.lat);
+                          const lon = parseFloat(result.lon);
+                          return (
+                            <button
+                              key={result.place_id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectGeocodeResult(result);
+                              }}
+                              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition-colors ${
+                                darkMode
+                                  ? 'hover:bg-white/10 text-neutral-200'
+                                  : 'hover:bg-neutral-50 text-neutral-800'
+                              }`}
+                            >
+                              <div
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                  darkMode ? 'bg-white/8 text-neutral-300' : 'bg-neutral-100 text-neutral-600'
                                 }`}
                               >
-                                3D DEM READY
-                              </span>
+                                <MapPin className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold leading-tight truncate">{primary}</div>
+                                {secondary && (
+                                  <div className="text-[11px] text-neutral-400 truncate mt-0.5">{secondary}</div>
+                                )}
+                              </div>
+                              <div className="text-[10px] font-mono text-neutral-500 shrink-0">
+                                {lat.toFixed(2)}°, {lon.toFixed(2)}°
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Divider before local POIs */}
+                    {filteredLocalLocations.length > 0 && (
+                      <div
+                        className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider ${
+                          darkMode
+                            ? 'bg-black/50 text-neutral-500 border-t border-white/8'
+                            : 'bg-neutral-50 text-neutral-400 border-t border-neutral-100'
+                        }`}
+                      >
+                        Terrain POIs
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ── Local GLOBE_LOCATIONS ── */}
+                {(showLocalResults || (showGeocodeResults && filteredLocalLocations.length > 0)) && (
+                  <>
+                    {showLocalResults && (
+                      <div
+                        className={`sticky top-0 px-4 py-2 text-[10px] font-bold uppercase tracking-wider ${
+                          darkMode
+                            ? 'bg-black/70 text-neutral-400 border-b border-white/8'
+                            : 'bg-white/80 text-neutral-500 border-b border-neutral-100'
+                        }`}
+                      >
+                        Geological Points of Interest ({filteredLocalLocations.length})
+                      </div>
+                    )}
+                    <div className="p-2 space-y-0.5">
+                      {filteredLocalLocations.map((loc) => (
+                        <button
+                          key={loc.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleSelectLocation(loc);
+                          }}
+                          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors text-left ${
+                            selectedMarkerId === loc.id
+                              ? darkMode
+                                ? 'bg-white/15 text-white'
+                                : 'bg-neutral-100 text-neutral-900'
+                              : darkMode
+                              ? 'hover:bg-white/10 text-neutral-200'
+                              : 'hover:bg-neutral-50 text-neutral-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                darkMode ? 'bg-white/10 text-neutral-300' : 'bg-neutral-100 text-neutral-700'
+                              }`}
+                            >
+                              {loc.hasActiveModel ? (
+                                <Sparkles className="w-3.5 h-3.5 text-neutral-300" />
+                              ) : (
+                                <Mountain className="w-3.5 h-3.5 text-neutral-400" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-sm font-semibold flex items-center gap-1.5">
+                                <span>{loc.name}</span>
+                                {loc.hasActiveModel && (
+                                  <span
+                                    className={`px-1.5 py-0.5 text-[9px] font-bold rounded border ${
+                                      darkMode
+                                        ? 'bg-white/10 text-neutral-300 border-white/15'
+                                        : 'bg-neutral-100 text-neutral-700 border-neutral-300'
+                                    }`}
+                                  >
+                                    3D DEM READY
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-neutral-400">{loc.region}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <span className="text-xs font-mono text-neutral-400">{loc.elev}</span>
+                            {loc.hasActiveModel ? (
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  onEnterViewer();
+                                }}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-sm flex items-center gap-1.5 ${
+                                  darkMode
+                                    ? 'bg-white hover:bg-neutral-200 text-neutral-900'
+                                    : 'bg-neutral-900 hover:bg-neutral-800 text-white'
+                                }`}
+                              >
+                                <span>Open 3D</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <span className="text-xs text-neutral-400 font-medium">Focus</span>
                             )}
                           </div>
-                          <div className="text-xs text-neutral-400">{loc.region}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        <span className="text-xs font-mono text-neutral-400">{loc.elev}</span>
-                        {loc.hasActiveModel ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEnterViewer();
-                            }}
-                            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-sm flex items-center gap-1.5 ${
-                              darkMode
-                                ? 'bg-white hover:bg-neutral-200 text-neutral-900'
-                                : 'bg-neutral-900 hover:bg-neutral-800 text-white'
-                            }`}
-                          >
-                            <span>Open 3D</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <span className="text-xs text-neutral-400 font-medium">Focus</span>
-                        )}
-                      </div>
+                        </button>
+                      ))}
                     </div>
-                  ))
+                  </>
                 )}
               </div>
             </div>
@@ -553,7 +939,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 : 'bg-white/70 border-neutral-200/80 hover:border-neutral-300 shadow-neutral-200/60'
             }`}
           >
-            <Search className="w-5 h-5 shrink-0 text-neutral-400" />
+            {isGeocoding ? (
+              <Loader2 className="w-5 h-5 shrink-0 text-neutral-400 animate-spin" />
+            ) : (
+              <Search className="w-5 h-5 shrink-0 text-neutral-400" />
+            )}
             <input
               id="globe-search-input"
               type="text"
@@ -561,16 +951,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => setIsSearchFocused(true)}
               onBlur={() => {
-                // Delayed hide to allow clicking result items
                 setTimeout(() => setIsSearchFocused(false), 220);
               }}
-              placeholder="Search mountains, coordinates (e.g. Hindu Kush, 36° N, 71° E)..."
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setIsSearchFocused(false);
+                  setSearchQuery('');
+                  setGeocodeResults([]);
+                }
+                if (e.key === 'Enter' && geocodeResults.length > 0) {
+                  handleSelectGeocodeResult(geocodeResults[0]);
+                }
+              }}
+              placeholder="Search any place — city, mountain, country, coordinates..."
               className="w-full bg-transparent border-0 outline-none text-sm sm:text-base placeholder:text-neutral-500 font-medium"
             />
             {searchQuery && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
+                onClick={() => {
+                  setSearchQuery('');
+                  setGeocodeResults([]);
+                  setNavigateToCoords(null);
+                }}
                 className="p-1 rounded-md text-neutral-400 hover:text-neutral-200 hover:bg-white/10 transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -597,12 +1000,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         >
           <div className="p-6 rounded-3xl bg-neutral-900/90 text-white flex flex-col items-center gap-3 shadow-2xl border border-white/10">
             <Upload className="w-12 h-12 text-neutral-300 animate-bounce" />
-            <h3 className="text-lg font-bold">Drop your 3D Surface File here</h3>
+            <h3 className="text-lg font-bold">Drop your file here</h3>
             <p className="text-xs text-neutral-300">
-              Will immediately load into the 3D Surface Viewer
+              GeoTIFF, PNG, JPG or HTML — automatically processed
             </p>
           </div>
         </div>
+      )}
+
+      {/* 5. TIF / Image Preview Modal */}
+      {pendingFile && (
+        <TifPreviewModal
+          file={pendingFile}
+          darkMode={darkMode}
+          onConfirm={handleConfirmUpload}
+          onCancel={() => setPendingFile(null)}
+        />
       )}
     </div>
   );

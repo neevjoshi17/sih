@@ -10,7 +10,7 @@ export const CoordinatesOverlay: React.FC<CoordinatesOverlayProps> = ({
   darkMode = true,
   className = 'bottom-5 left-1/2 -translate-x-1/2',
 }) => {
-  // Base geographic reference (Hindu Kush mountain range ~ 36.1524° N, 71.3045° E)
+  // Base geographic reference (Place Kush mountain range ~ 36.1524° N, 71.3045° E)
   const BASE_LAT = 36.1524;
   const BASE_LON = 71.3045;
   const BASE_ALT = 3850;
@@ -98,11 +98,10 @@ export const CoordinatesOverlay: React.FC<CoordinatesOverlayProps> = ({
   return (
     <div
       id="coordinates-display-overlay"
-      className={`absolute ${className} z-30 pointer-events-none flex items-center gap-3 px-4 py-1.5 rounded-full backdrop-blur-md border text-xs shadow-xl select-none font-mono transition-colors duration-200 ${
-        darkMode
+      className={`absolute ${className} z-30 pointer-events-none flex items-center gap-3 px-4 py-1.5 rounded-full backdrop-blur-md border text-xs shadow-xl select-none font-mono transition-colors duration-200 ${darkMode
           ? 'bg-black/85 border-white/20 text-white shadow-black/50'
           : 'bg-white/90 border-slate-200 text-slate-800 shadow-slate-200/60'
-      }`}
+        }`}
     >
       <div className={`flex items-center gap-1.5 ${darkMode ? 'text-white' : 'text-slate-800'}`}>
         <Navigation className="w-3.5 h-3.5 transform -rotate-45" />
@@ -110,9 +109,8 @@ export const CoordinatesOverlay: React.FC<CoordinatesOverlayProps> = ({
 
       <div className="flex items-center gap-3 text-xs">
         <div className="flex items-center gap-1">
-          <span className={`text-[10px] font-bold font-sans tracking-wide ${
-            darkMode ? 'text-neutral-400' : 'text-slate-500'
-          }`}>
+          <span className={`text-[10px] font-bold font-sans tracking-wide ${darkMode ? 'text-neutral-400' : 'text-slate-500'
+            }`}>
             LAT:
           </span>
           <span className={`font-semibold ${darkMode ? 'text-white' : 'text-slate-900'}`}>
@@ -123,9 +121,8 @@ export const CoordinatesOverlay: React.FC<CoordinatesOverlayProps> = ({
         <span className={darkMode ? 'text-white/30' : 'text-slate-300'}>•</span>
 
         <div className="flex items-center gap-1">
-          <span className={`text-[10px] font-bold font-sans tracking-wide ${
-            darkMode ? 'text-neutral-400' : 'text-slate-500'
-          }`}>
+          <span className={`text-[10px] font-bold font-sans tracking-wide ${darkMode ? 'text-neutral-400' : 'text-slate-500'
+            }`}>
             LON:
           </span>
           <span className={`font-semibold ${darkMode ? 'text-white' : 'text-slate-900'}`}>
@@ -136,9 +133,8 @@ export const CoordinatesOverlay: React.FC<CoordinatesOverlayProps> = ({
         <span className={`hidden sm:inline ${darkMode ? 'text-white/30' : 'text-slate-300'}`}>•</span>
 
         <div className="hidden sm:flex items-center gap-1">
-          <span className={`text-[10px] font-bold font-sans tracking-wide ${
-            darkMode ? 'text-neutral-400' : 'text-slate-500'
-          }`}>
+          <span className={`text-[10px] font-bold font-sans tracking-wide ${darkMode ? 'text-neutral-400' : 'text-slate-500'
+            }`}>
             ELEV:
           </span>
           <span className={`font-semibold ${darkMode ? 'text-white' : 'text-slate-900'}`}>

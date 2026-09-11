@@ -18,7 +18,7 @@ export interface GlobeMarker {
 export const GLOBE_LOCATIONS: GlobeMarker[] = [
   {
     id: 'kush',
-    name: 'Hindu Kush Peak & Basin',
+    name: 'Place Kush Peak & Basin',
     region: 'South-Central Asia (36.0° N, 71.2° E)',
     lat: 36.0,
     lon: 71.2,
@@ -110,6 +110,8 @@ interface Globe3DProps {
   targetMarkerId?: string | null;
   onCoordinatesChange?: (lat: number, lon: number) => void;
   onZoomInToMap?: (coords: { lat: number; lon: number; zoom: number }) => void;
+  /** Navigate globe to arbitrary coordinates (e.g. from geocoding search) */
+  navigateToCoords?: { lat: number; lon: number } | null;
 }
 
 export const Globe3D: React.FC<Globe3DProps> = ({
@@ -118,6 +120,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({
   targetMarkerId,
   onCoordinatesChange,
   onZoomInToMap,
+  navigateToCoords,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -640,12 +643,26 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     }
   }, [targetMarkerId, rotateToMarker]);
 
+  // Respond to arbitrary geocoding coordinate navigation
+  useEffect(() => {
+    if (navigateToCoords) {
+      rotateToMarker({
+        id: '__search__',
+        name: '',
+        region: '',
+        lat: navigateToCoords.lat,
+        lon: navigateToCoords.lon,
+        elev: '',
+        type: 'peak',
+      });
+    }
+  }, [navigateToCoords, rotateToMarker]);
+
   return (
     <div
       id="globe-3d-wrapper"
-      className={`relative w-full h-full select-none overflow-hidden transition-colors duration-300 ${
-        darkMode ? 'bg-[#09090b]' : 'bg-[#f4f4f5]'
-      }`}
+      className={`relative w-full h-full select-none overflow-hidden transition-colors duration-300 ${darkMode ? 'bg-[#09090b]' : 'bg-[#f4f4f5]'
+        }`}
     >
       <div
         id="globe-canvas-container"
@@ -681,9 +698,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({
         >
           <div className="flex items-center gap-1.5 font-semibold text-[13px] tracking-tight">
             <span
-              className={`w-2 h-2 rounded-full ${
-                hoveredMarker.hasActiveModel ? 'bg-white animate-ping' : 'bg-neutral-400'
-              }`}
+              className={`w-2 h-2 rounded-full ${hoveredMarker.hasActiveModel ? 'bg-white animate-ping' : 'bg-neutral-400'
+                }`}
             />
             <span>{hoveredMarker.name}</span>
           </div>
@@ -708,11 +724,10 @@ export const Globe3D: React.FC<Globe3DProps> = ({
       {/* Floating Zoom Controls & 2D Map Switcher */}
       <div className="absolute right-5 sm:right-7 top-1/2 -translate-y-1/2 z-30 pointer-events-auto flex flex-col items-center gap-2">
         <div
-          className={`flex flex-col rounded-2xl border shadow-2xl backdrop-blur-xl overflow-hidden ${
-            darkMode
+          className={`flex flex-col rounded-2xl border shadow-2xl backdrop-blur-xl overflow-hidden ${darkMode
               ? 'bg-black/70 border-white/15 divide-y divide-white/10 text-neutral-200'
               : 'bg-white/80 border-neutral-300 divide-y divide-neutral-200 text-neutral-800'
-          }`}
+            }`}
         >
           <button
             type="button"
