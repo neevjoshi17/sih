@@ -1,0 +1,8 @@
+{
+  "name": "Remix 3D Space",
+  "description": "An interactive 3D geospatial exploration platform featuring an interactive 3D globe, location search, and 3D surface terrain model viewer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
